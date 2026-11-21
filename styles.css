@@ -89,6 +89,7 @@ main { padding: 12px 16px; }
   display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
   background: var(--accent); color: var(--accent-ink); font-size: 13px;
 }
+.opt { font-style: normal; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; font-weight: 600; }
 .req { font-style: normal; font-size: 11px; color: var(--warn); border: 1px solid currentColor; border-radius: 6px; padding: 0 5px; font-weight: 600; }
 .muted { color: var(--muted); margin: 0 0 12px; font-size: 14px; }
 .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
@@ -109,7 +110,7 @@ main { padding: 12px 16px; }
 /* ===== 입력 ===== */
 .field { margin-bottom: 14px; }
 .field-label { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; margin-bottom: 6px; }
-select {
+select, input[type="number"] {
   width: 100%; min-height: 44px; padding: 0 10px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--surface-2);
 }
@@ -223,3 +224,5 @@ select {
   background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px;
   max-width: calc(100% - 32px); z-index: 50; box-shadow: 0 6px 20px rgba(0,0,0,.25);
 }
+
+.metric .cm { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }

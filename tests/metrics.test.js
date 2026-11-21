@@ -55,3 +55,25 @@ test('랜드마크 보간과 척추각', () => {
   const mid = landmarksAt([a, b], 0.5);
   assert.ok(Math.abs(mid[0].x - 0.55) < 1e-9);
 });
+
+test('키 입력 시 % 항목에 cm 환산, 미입력·잘못된 값이면 cm 없음', async () => {
+  const { validHeight } = await import('../js/metrics.js');
+  const samples = makeSamples({
+    mutate: (lm, tr) => {
+      const u = Math.min(1, Math.max(0, (tr - TRUTH.address) / (TRUTH.top - TRUTH.address)));
+      lm[0] = { ...lm[0], x: 0.5 - 0.02 * u };
+    },
+  });
+  const withH = computeMetrics(samples, TRUTH, { view: 'face', aspect: 1, timeScale: 1, heightCm: 180 });
+  const head = withH.items.find((i) => i.key === 'headLateralTop');
+  assert.ok(Math.abs(head.cm - (head.value / 100) * 180) < 1e-9);
+  assert.ok(head.cm < 0);
+  const without = computeMetrics(samples, TRUTH, { view: 'face', aspect: 1, timeScale: 1 });
+  const head2 = without.items.find((i) => i.key === 'headLateralTop');
+  assert.equal(head2.cm, null);
+  assert.equal(head2.value, head.value, '키 입력은 %값에 영향 없음');
+  assert.equal(validHeight('175'), 175);
+  assert.equal(validHeight(50), null);
+  assert.equal(validHeight(''), null);
+  assert.equal(validHeight('abc'), null);
+});

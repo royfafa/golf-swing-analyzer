@@ -9,7 +9,7 @@ import { seekTo, createSeekQueue, primeVideo, estimateFpsByPlayback } from './vi
 import { loadPose, MEDIAPIPE_VERSION } from './pose.js';
 import { analyzeRange } from './analyze.js';
 import { suggestPhases, phasesInOrder, PHASES, PHASE_LABEL } from './phases.js';
-import { computeMetrics, landmarksAt } from './metrics.js';
+import { computeMetrics, landmarksAt, validHeight } from './metrics.js';
 import { drawSkeleton, drawHandTrail, drawHeadReference, SEG_COLORS } from './render.js';
 import { saveRecord, listRecords, deleteRecord, storageEstimate } from './store.js';
 
@@ -19,7 +19,7 @@ const overlay = $('#overlay');
 
 /* ---------------- 설정 저장(localStorage는 실패해도 동작하게) ---------------- */
 const SETTINGS_KEY = 'swing-analyzer:settings';
-const settings = { model: 'full' };
+const settings = { model: 'full', heightCm: null };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* 무시 */ }
 const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* 무시 */ } };
 
@@ -509,6 +509,7 @@ $('#btn-confirm').addEventListener('click', async () => {
 function buildResult() {
   S.result = computeMetrics(S.samples, S.phases, {
     view: S.view, aspect: video.videoWidth / video.videoHeight, timeScale: S.tb.timeScale,
+    heightCm: settings.heightCm,
   });
   S.saved = false;
   $('#btn-save').disabled = false;
@@ -523,7 +524,8 @@ function renderResult() {
     : '실시간 기준 시간이에요.';
   const valueText = (it) => {
     const sign = it.signed && it.value > 0 ? '+' : '';
-    return `${sign}${fmt(it.value, it.unit === '°' ? 1 : 1)}${it.unit}`;
+    const cm = Number.isFinite(it.cm) ? `<span class="cm">약 ${it.signed && it.cm > 0 ? '+' : ''}${fmt(it.cm, 1)}cm</span>` : '';
+    return `${sign}${fmt(it.value, 1)}${it.unit}${cm}`;
   };
   const excluded = S.view === 'face'
     ? '척추 전경각은 정면 영상에서 측정할 수 없어 제외했어요.'
@@ -588,12 +590,13 @@ $('#btn-save').addEventListener('click', async () => {
     fileFps: S.fileFps,
     captureFps: S.mode === 'slowmo' ? S.captureFps : null,
     resolvedType: S.tb.resolvedType,
+    heightCm: settings.heightCm,
     timeScale: S.tb.timeScale,
     trim: { ...S.trim },
     phases: { ...S.phases },
     editedPhases: { ...S.edited },
     tempo: S.result.tempo,
-    items: S.result.items.map(({ key, label, value, unit, grade, detail, signed, lowConfidence }) => ({ key, label, value, unit, grade, detail, signed: !!signed, lowConfidence: !!lowConfidence })),
+    items: S.result.items.map(({ key, label, value, unit, grade, detail, signed, lowConfidence, cm }) => ({ key, label, value, unit, grade, detail, signed: !!signed, lowConfidence: !!lowConfidence, cm: Number.isFinite(cm) ? cm : null })),
     notes: S.result.notes,
     snapshots: S.snapshots || {},
     diag: { ...S.analysisDiag, model: S.poseInfo?.model, delegate: S.poseInfo?.delegate, vfr: !!S.meta?.isVFR },
@@ -674,7 +677,7 @@ async function renderHistory() {
     const d = new Date(r.createdAt);
     const when = `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     const stats = r.items.filter((i) => i.grade !== 'info')
-      .map((i) => `${i.label} <b>${i.signed && i.value > 0 ? '+' : ''}${fmt(i.value, 1)}${i.unit}</b>`).join('<br>');
+      .map((i) => `${i.label} <b>${i.signed && i.value > 0 ? '+' : ''}${fmt(i.value, 1)}${i.unit}</b>${Number.isFinite(i.cm) ? ` (약 ${i.signed && i.cm > 0 ? '+' : ''}${fmt(i.cm, 1)}cm)` : ''}`).join('<br>');
     return `<div class="rec">
       <div class="rec-head"><b>템포 ${fmt(r.tempo.ratio, 1)} : 1</b><span>${when}</span></div>
       <div class="rec-stats">${r.view === 'face' ? '정면' : '후방'} · ${r.mode === 'slowmo' ? `슬로모션 ${r.captureFps || ''}` : '일반'} · 백스윙 ${fmt(r.tempo.backSec, 2)}초 / 다운스윙 ${fmt(r.tempo.downSec, 2)}초</div>
@@ -694,6 +697,30 @@ async function renderHistory() {
 setSeg('model', settings.model);
 bindSeg('model', (v) => { settings.model = v; saveSettings(); toast(`자세 인식 모델: ${v === 'full' ? '정확' : '빠름'}`); });
 $('#mp-version').textContent = `v${MEDIAPIPE_VERSION}`;
+
+const heightInput = $('#height-input');
+settings.heightCm = validHeight(settings.heightCm);
+if (settings.heightCm) heightInput.value = String(settings.heightCm);
+heightInput.addEventListener('change', () => {
+  const raw = heightInput.value.trim();
+  if (raw === '') {
+    settings.heightCm = null;
+    toast('키 입력을 지웠어요. 이동량은 %로만 보여줘요.');
+  } else {
+    const h = validHeight(raw);
+    if (!h) {
+      heightInput.value = settings.heightCm ? String(settings.heightCm) : '';
+      toast('키는 100~230cm 사이로 입력해 주세요.');
+      return;
+    }
+    settings.heightCm = h;
+    heightInput.value = String(h);
+    toast(`키 ${h}cm로 저장했어요.`);
+  }
+  saveSettings();
+  // 이미 결과가 있으면 cm 환산을 다시 반영(저장 전 상태로 돌아감)
+  if (S.result) buildResult();
+});
 
 // 테스트·디버깅용으로 상태를 노출(동작에는 영향 없음)
 window.__swing = { S, settings };

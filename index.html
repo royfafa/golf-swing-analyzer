@@ -12,7 +12,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=1" />
+<link rel="stylesheet" href="styles.css?v=2" />
 </head>
 <body>
 <div class="app">
@@ -204,6 +204,11 @@
       <article class="card">
         <h2>설정</h2>
         <div class="field">
+          <label class="field-label" for="height-input">내 키 (cm) <em class="opt">선택</em></label>
+          <input type="number" id="height-input" inputmode="numeric" min="100" max="230" step="1" placeholder="예: 175" />
+          <p class="hint">입력하면 머리·골반 이동량을 <b>신장 대비 %</b>와 함께 <b>cm</b>로도 보여줘요. %는 키 입력과 상관없이 영상 속 몸 길이로 계산하므로, 키를 바꿔도 %와 평가는 그대로예요.</p>
+        </div>
+        <div class="field">
           <span class="field-label">자세 인식 모델</span>
           <div class="seg" role="radiogroup" data-name="model">
             <button type="button" role="radio" data-value="full">정확 (full)</button>
@@ -221,6 +226,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </div>
-<script type="module" src="js/app.js?v=1"></script>
+<script type="module" src="js/app.js?v=2"></script>
 </body>
 </html>

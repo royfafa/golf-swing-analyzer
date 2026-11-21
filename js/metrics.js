@@ -33,6 +33,12 @@ export function landmarksAt(samples, t) {
   });
 }
 
+/** 입력 키 검증: 100~230cm 범위의 숫자만 인정 */
+export function validHeight(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 100 && n <= 230 ? Math.round(n) : null;
+}
+
 /** 평가 등급: good / ok / warn */
 function grade(value, goodMax, okMax) {
   const v = Math.abs(value);
@@ -84,10 +90,12 @@ const avgVis = (lm, ids) => ids.reduce((s, i) => s + (lm[i].visibility ?? 1), 0)
 /**
  * @param {Array<{t:number, lm:Array|null}>} samples
  * @param {Record<string,number>} times 확정된 구간(영상 시간)
- * @param {{view:'face'|'dtl', aspect:number, timeScale:number}} opt
+ * @param {{view:'face'|'dtl', aspect:number, timeScale:number, heightCm?:number|null}} opt
+ *   heightCm: 사용자가 입력한 키(cm). 있으면 % 항목에 cm 환산값(cm)을 덧붙인다.
  * @returns {{tempo:object, items:Array<object>, notes:string[]}}
  */
-export function computeMetrics(samples, times, { view, aspect, timeScale }) {
+export function computeMetrics(samples, times, { view, aspect, timeScale, heightCm = null }) {
+  const h = validHeight(heightCm);
   const at = {};
   for (const k of ['address', 'top', 'impact', 'finish']) at[k] = landmarksAt(samples, times[k]);
   const tempo = computeTempo(times, timeScale);
@@ -128,7 +136,7 @@ export function computeMetrics(samples, times, { view, aspect, timeScale }) {
       key: 'headLateral', label: '머리 좌우 이동 (어드레스→임팩트)',
       value: pct(headImpDx), unit: '%', signed: true, detail: side(headImpDx),
       grade: grade(pct(headImpDx), 3, 6),
-      hint: '신장 대비. 약 3% 이내면 안정적이에요. (신장 175cm 기준 3% ≈ 5cm)',
+      hint: `신장 대비. 약 3% 이내면 안정적이에요. ${h ? `(내 키 ${h}cm 기준 3% ≈ ${(h * 0.03).toFixed(1)}cm)` : '(설정에서 키를 입력하면 cm로도 보여줘요)'}`,
     });
     items.push({
       key: 'headLateralTop', label: '머리 좌우 이동 (어드레스→탑)',
@@ -165,7 +173,8 @@ export function computeMetrics(samples, times, { view, aspect, timeScale }) {
       grade: shTop >= 0 ? 'good' : grade(pct(shTop), 4, 8),
       hint: '어깨 중심이 백스윙에서 타깃 반대쪽으로 밀리는 정도.',
     });
-    notes.push(`신장은 영상 속 가장 곧게 선 자세의 코~발목 길이로 추정했어요(인체 평균 비율 ${NOSE_TO_ANKLE_RATIO}). 절대값보다 내 기록끼리 비교할 때 더 정확해요.`);
+    for (const it of items) if (it.unit === '%') it.cm = h ? (it.value / 100) * h : null;
+    notes.push(`이동량(%)은 영상 속 가장 곧게 선 자세의 코~발목 길이로 화면 속 신장을 추정해 계산했어요(인체 평균 비율 ${NOSE_TO_ANKLE_RATIO}).${h ? ` cm 값은 입력한 키 ${h}cm로 환산한 추정치예요.` : ''} 절대값보다 내 기록끼리 비교할 때 더 정확해요.`);
     notes.push(`타깃 방향은 백스윙 손 움직임으로 판단했어요: 화면 ${target > 0 ? '오른쪽' : '왼쪽'}.`);
   } else {
     const tilt = {};
