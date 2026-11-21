@@ -93,46 +93,34 @@ const VIEW_LABEL = { face: '정면', dtl: '후방' };
  * @param {{view:string, club:string|null, featureLabels:Record<string,string>}} ctx
  */
 export function predictionHTML(pred, { view, club, featureLabels }) {
-  const keysText = (keys) => (keys?.length ? `추측에 많이 반영된 지표: ${keys.slice(0, 3).map((k) => featureLabels[k] || k).join(', ')}` : '');
-  const waiting = (count, need, what) => `<p class="pred-wait">${what} 정타 기록 <b>${count}/${need}</b>개 — ${need - count}개 더 모이면 추측을 시작해요.</p>`;
+  const keysText = (keys) => (keys?.length ? `많이 반영된 지표: ${keys.slice(0, 3).map((k) => featureLabels[k] || k).join(', ')}` : '');
   const distRow = (d) => Object.entries(d).sort((a, b) => b[1] - a[1]);
-  let html = '';
+  const lines = [];    // 바로 보이는 추측
+  const pending = [];  // 아직 데이터가 부족한 항목
+  const details = [];  // 접어 둔 정확도·근거
 
-  // 거리
-  html += '<div class="pred-block"><div class="pred-title">거리</div>';
-  if (!club) {
-    html += '<p class="pred-wait">아래에서 클럽을 고르면 거리를 추측해요.</p>';
-  } else if (!Number.isFinite(pred.distance?.value)) {
-    html += waiting(pred.distance?.count ?? 0, MIN_SAMPLES, `${CLUB_LABEL[club]}·${VIEW_LABEL[view]}`);
-  } else {
+  if (!club) pending.push('거리: 클럽 선택 시');
+  else if (!Number.isFinite(pred.distance?.value)) pending.push(`거리(${CLUB_LABEL[club]}) ${pred.distance?.count ?? 0}/${MIN_SAMPLES}`);
+  else {
     const p = pred.distance;
     const good = beatsBaseline(p.eval, 'distance');
-    html += `<div class="pred-main">약 ${fmt(p.value)}m <span class="pred-sub">비슷한 스윙 ${fmt(p.min)}~${fmt(p.max)}m</span></div>`;
-    if (p.eval) {
-      html += `<p class="pred-acc">과거 기록으로 시험한 평균 오차 <b>±${fmt(p.eval.mae)}m</b> (클럽 평균만 쓸 때 ±${fmt(p.eval.baselineMae)}m, ${p.eval.n}개)</p>`;
-    }
-    if (!good) html += `<p class="pred-warn">아직 스윙 지표로 거리 차이를 설명하지 못해요. 이 클럽 평균 <b>${fmt(p.clubAvg)}m</b>가 더 믿을 만해요.</p>`;
-    html += `<p class="pred-keys">${keysText(p.keys)}</p>`;
+    lines.push(`<div class="pred-line"><span class="pred-k">거리</span><b>약 ${fmt(p.value)}m</b> <span class="pred-sub">(${fmt(p.min)}~${fmt(p.max)}m)</span>${good ? '' : ' <span class="badge ok">평균이 더 정확</span>'}</div>`);
+    details.push(`<li>거리: 과거 기록 시험 평균 오차 ±${fmt(p.eval?.mae)}m, 클럽 평균만 쓸 때 ±${fmt(p.eval?.baselineMae)}m (${p.eval?.n ?? 0}개)${good ? '' : ` → 지금은 이 클럽 평균 ${fmt(p.clubAvg)}m가 더 믿을 만해요`}. ${keysText(p.keys)}</li>`);
   }
-  html += '</div>';
-
-  // 방향
-  for (const [target, title, labels] of [['start', '출발 방향', START_LABEL], ['curve', '휘어짐', CURVE_LABEL]]) {
+  for (const [target, title, labels] of [['start', '출발', START_LABEL], ['curve', '휘어짐', CURVE_LABEL]]) {
     const p = pred[target];
-    html += `<div class="pred-block"><div class="pred-title">${title}</div>`;
-    if (!Number.isFinite(p?.value)) {
-      html += waiting(p?.count ?? 0, MIN_SAMPLES, `${VIEW_LABEL[view]} 영상`);
-    } else {
-      const good = beatsBaseline(p.eval, target);
-      html += `<div class="pred-main">${labels[p.value]}</div>`;
-      html += `<p class="pred-sub">비슷한 스윙 ${Object.values(p.dist).reduce((a, b) => a + b, 0)}개: ${distRow(p.dist).map(([v, c]) => `${labels[v]} ${c}`).join(' · ')}</p>`;
-      if (p.eval) html += `<p class="pred-acc">과거 기록으로 시험한 적중률 <b>${Math.round(p.eval.hitRate * 100)}%</b> (가장 흔한 결과만 고를 때 ${Math.round(p.eval.baselineHitRate * 100)}%)</p>`;
-      if (!good) html += '<p class="pred-warn">아직 스윙 지표로 방향 차이를 설명하지 못해요. 참고만 하세요.</p>';
-      html += `<p class="pred-keys">${keysText(p.keys)}</p>`;
-    }
-    html += '</div>';
+    if (!Number.isFinite(p?.value)) { pending.push(`${title} ${p?.count ?? 0}/${MIN_SAMPLES}`); continue; }
+    const good = beatsBaseline(p.eval, target);
+    lines.push(`<div class="pred-line"><span class="pred-k">${title}</span><b>${labels[p.value]}</b>${good ? '' : ' <span class="badge ok">참고만</span>'}</div>`);
+    details.push(`<li>${title}: 비슷한 스윙 ${distRow(p.dist).map(([v, c]) => `${labels[v]} ${c}`).join(' · ')} / 과거 기록 시험 적중률 ${Math.round((p.eval?.hitRate ?? 0) * 100)}% (가장 흔한 결과만 고를 때 ${Math.round((p.eval?.baselineHitRate ?? 0) * 100)}%). ${keysText(p.keys)}</li>`);
   }
-  html += '<p class="pred-note">영상으로는 페이스 각도·스핀을 잴 수 없어, 물리 계산이 아니라 <b>지표가 비슷했던 내 과거 스윙의 실제 결과</b>로 추측한 값이에요. 같은 촬영 방향·정타 기록만 사용해요.</p>';
+
+  let html = lines.length ? `<div class="pred-block">${lines.join('')}</div>` : '';
+  if (pending.length) {
+    html += `<p class="pred-wait">${lines.length ? '준비 중' : '추측 준비 중'}: ${pending.join(' · ')} <span class="muted-inline">(${VIEW_LABEL[view]} 정타 기록 ${MIN_SAMPLES}개부터)</span></p>`;
+  }
+  details.push('<li>영상으로는 페이스 각도·스핀을 잴 수 없어, 물리 계산이 아니라 지표가 비슷했던 내 과거 스윙(같은 촬영 방향·정타)의 실제 결과로 추측해요.</li>');
+  html += `<details class="fold"><summary>정확도·근거</summary><ul class="notes">${details.join('')}</ul></details>`;
   return html;
 }
 

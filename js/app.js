@@ -602,34 +602,42 @@ function onOutcomeChange(o) {
 function renderResult() {
   const { tempo, items, notes } = S.result;
   const gradeText = { good: '좋음', ok: '보통', warn: '주의', info: '참고' };
-  const timeNote = S.tb.resolvedType === 'slowed'
-    ? `슬로모션 배율(${fmt(1 / S.tb.timeScale, 1)}배)로 환산한 절대 시간이에요. 가변 속도 구간이 섞이면 초 단위 값은 틀릴 수 있지만, 비율은 배율과 무관해요.`
-    : '실시간 기준 시간이에요.';
+  const order = { warn: 0, ok: 1, good: 2 };
   const valueText = (it) => {
     const sign = it.signed && it.value > 0 ? '+' : '';
-    const cm = Number.isFinite(it.cm) ? `<span class="cm">약 ${it.signed && it.cm > 0 ? '+' : ''}${fmt(it.cm, 1)}cm</span>` : '';
-    return `${sign}${fmt(it.value, 1)}${it.unit}${cm}`;
+    const cm = Number.isFinite(it.cm) ? ` <span class="cm-inline">(${it.signed && it.cm > 0 ? '+' : ''}${fmt(it.cm, 1)}cm)</span>` : '';
+    return `${sign}${fmt(it.value, 1)}${it.unit === '신장/초' ? '' : it.unit}${cm}`;
   };
+  // 한 줄 요약 + 눌러서 설명 보기
+  const row = (it) => `
+    <details class="mrow">
+      <summary>
+        <span class="mrow-label">${it.label}${it.lowConfidence ? ' <span class="badge low">신뢰도 낮음</span>' : ''}</span>
+        <span class="mrow-value">${valueText(it)}</span>
+        <span class="badge ${it.grade}">${gradeText[it.grade]}</span>
+      </summary>
+      <p class="mrow-desc">${it.detail ? `<b>${it.detail}</b> · ` : ''}${it.hint}</p>
+    </details>`;
+  const main = items.filter((it) => it.grade !== 'info').sort((x, y) => order[x.grade] - order[y.grade]);
+  const ref = items.filter((it) => it.grade === 'info');
+  const count = (g) => main.filter((it) => it.grade === g).length;
+  const summary = [['warn', '주의'], ['ok', '보통'], ['good', '좋음']]
+    .filter(([g]) => count(g)).map(([g, l]) => `<span class="badge ${g}">${l} ${count(g)}</span>`).join(' ');
+  const timeNote = S.tb.resolvedType === 'slowed'
+    ? `초 단위 시간은 슬로모션 배율(${fmt(1 / S.tb.timeScale, 1)}배)로 환산했어요. 가변 속도 구간이 섞이면 틀릴 수 있지만 템포 비율은 배율과 무관해요.`
+    : '';
   const excluded = S.view === 'face'
     ? '척추 전경각은 정면 영상에서 측정할 수 없어 제외했어요.'
     : '머리 좌우 이동·스웨이는 후방 영상에서 측정할 수 없어 제외했어요(카메라 쪽 움직임은 화면에 드러나지 않아요).';
+  const allNotes = [timeNote, excluded, ...notes].filter(Boolean);
   $('#result-body').innerHTML = `
     <div class="tempo-hero">
-      <div class="sub">템포 (백스윙 : 다운스윙)</div>
-      <div class="big">${fmt(tempo.ratio, 1)} : 1 <span class="badge ${tempo.ratioGrade}">${gradeText[tempo.ratioGrade]}</span></div>
-      <div class="sub">백스윙 ${fmt(tempo.backSec, 2)}초 · 다운스윙 ${fmt(tempo.downSec, 2)}초 · 테이크어웨이→임팩트 ${fmt(tempo.totalSec, 2)}초</div>
-      <div class="sub">참고: 투어 선수 평균 약 3 : 1. ${timeNote}</div>
+      <div class="big">템포 ${fmt(tempo.ratio, 1)} : 1 <span class="badge ${tempo.ratioGrade}">${gradeText[tempo.ratioGrade]}</span></div>
+      <div class="sub">백스윙 ${fmt(tempo.backSec, 2)}초 · 다운스윙 ${fmt(tempo.downSec, 2)}초 · 투어 평균 약 3 : 1</div>
     </div>
-    ${items.map((it) => `
-      <div class="metric">
-        <div class="label">${it.label}
-          <span class="badge ${it.grade}">${gradeText[it.grade]}</span>
-          ${it.lowConfidence ? '<span class="badge low">신뢰도 낮음</span>' : ''}
-        </div>
-        <div class="value">${valueText(it)}</div>
-        <div class="desc">${it.detail ? `${it.detail} · ` : ''}${it.hint}</div>
-      </div>`).join('')}
-    <ul class="notes">${[excluded, ...notes].map((n) => `<li>${n}</li>`).join('')}</ul>`;
+    ${main.length ? `<div class="mrow-summary">${summary}<span class="hint-inline">항목을 누르면 설명이 보여요</span></div>${main.map(row).join('')}` : ''}
+    ${ref.length ? `<details class="fold"><summary>참고 지표 ${ref.length}개</summary>${ref.map(row).join('')}</details>` : ''}
+    <details class="fold"><summary>측정 방법·한계</summary><ul class="notes">${allNotes.map((n) => `<li>${n}</li>`).join('')}</ul></details>`;
 }
 
 async function makeSnapshots() {
