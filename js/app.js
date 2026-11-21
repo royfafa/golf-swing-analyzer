@@ -14,6 +14,8 @@ import { drawSkeleton, drawHandTrail, drawHeadReference, SEG_COLORS } from './re
 import { saveRecord, listRecords, deleteRecord, storageEstimate } from './store.js';
 import { createLineTool, autoAnchors, drawLines } from './lines.js';
 import { initCompare } from './compare.js';
+import { predictSwing, featuresFrom } from './predict.js';
+import { mountOutcomeForm, predictionHTML, learningStatusHTML, outcomeSummary, hasOutcome, withFeatures, emptyOutcome } from './outcome.js';
 
 const $ = (s) => document.querySelector(s);
 const video = $('#video');
@@ -21,7 +23,7 @@ const overlay = $('#overlay');
 
 /* ---------------- 설정 저장(localStorage는 실패해도 동작하게) ---------------- */
 const SETTINGS_KEY = 'swing-analyzer:settings';
-const settings = { model: 'full', heightCm: null };
+const settings = { model: 'full', heightCm: null, lastClub: null };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* 무시 */ }
 const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* 무시 */ } };
 
@@ -91,6 +93,7 @@ function resetAnalysis() {
   S.snapshotUrls = [];
   show('#step-phases', false);
   show('#step-result', false);
+  $('#player').classList.remove('no-stick');
   show('#progress', false);
 }
 
@@ -118,6 +121,7 @@ async function loadFile(file) {
   S.meta = null;
   S.playbackFps = null;
   S.trim = { start: null, end: null };
+  S.outcome = null;
   lineTool.clear();
   lineTool.setMode(null);
   video.src = S.url;
@@ -531,7 +535,7 @@ $('#btn-set-phase').addEventListener('click', () => {
     stepTo(S.phases[S.activePhase]);
   }
   renderPhases();
-  if (S.result) { S.result = null; show('#step-result', false); }
+  if (S.result) { S.result = null; show('#step-result', false); $('#player').classList.remove('no-stick'); }
 });
 $('#btn-reset-phases').addEventListener('click', () => {
   S.phases = { ...S.suggested };
@@ -543,6 +547,7 @@ $('#btn-confirm').addEventListener('click', async () => {
   if (!phasesInOrder(S.phases)) { toast('구간 순서를 확인해 주세요.'); return; }
   buildResult();
   show('#step-result');
+  $('#player').classList.add('no-stick');
   $('#step-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   await makeSnapshots();
 });
@@ -554,13 +559,47 @@ function buildResult() {
     heightCm: settings.heightCm,
   });
   S.saved = false;
+  S.savedRecord = null;
+  if (!S.outcome) S.outcome = emptyOutcome(settings.lastClub);
   $('#btn-save').disabled = false;
+  $('#btn-save').textContent = '기록에 저장';
   renderResult();
+  mountOutcomeForm($('#outcome-form'), S.outcome, onOutcomeChange);
+  renderPrediction();
+}
+
+/* ---------------- 공 방향·거리 추측 ---------------- */
+function featureLabels() {
+  const m = { tempoRatio: '템포 비율', backSec: '백스윙 시간', downSec: '다운스윙 시간' };
+  for (const it of S.result?.items || []) m[it.key] = it.label;
+  return m;
+}
+let predictSeq = 0;
+async function renderPrediction() {
+  if (!S.result) return;
+  const seq = ++predictSeq;
+  let records = [];
+  try { records = withFeatures(await listRecords()); } catch { /* 저장소를 못 열면 데이터 0개로 표시 */ }
+  if (seq !== predictSeq) return;
+  const pred = predictSwing(records, featuresFrom(S.result), {
+    view: S.view, club: S.outcome?.club || null, excludeId: S.savedRecord?.id ?? null,
+  });
+  $('#predict-body').innerHTML = predictionHTML(pred, { view: S.view, club: S.outcome?.club || null, featureLabels: featureLabels() });
+}
+function onOutcomeChange(o) {
+  const clubChanged = o.club !== S.outcome?.club;
+  S.outcome = o;
+  if (o.club) { settings.lastClub = o.club; saveSettings(); }
+  if (clubChanged) renderPrediction();
+  if (S.saved) {
+    $('#btn-save').disabled = false;
+    $('#btn-save').textContent = '결과 변경 저장';
+  }
 }
 
 function renderResult() {
   const { tempo, items, notes } = S.result;
-  const gradeText = { good: '좋음', ok: '보통', warn: '주의', info: '기준값' };
+  const gradeText = { good: '좋음', ok: '보통', warn: '주의', info: '참고' };
   const timeNote = S.tb.resolvedType === 'slowed'
     ? `슬로모션 배율(${fmt(1 / S.tb.timeScale, 1)}배)로 환산한 절대 시간이에요. 가변 속도 구간이 섞이면 초 단위 값은 틀릴 수 있지만, 비율은 배율과 무관해요.`
     : '실시간 기준 시간이에요.';
@@ -621,7 +660,20 @@ async function makeSnapshots() {
 }
 
 $('#btn-save').addEventListener('click', async () => {
-  if (!S.result || S.saved) return;
+  if (!S.result) return;
+  if (S.saved && S.savedRecord) {
+    // 저장 후 실제 결과만 바뀐 경우: 같은 기록을 갱신
+    try {
+      S.savedRecord = { ...S.savedRecord, outcome: hasOutcome(S.outcome) ? { ...S.outcome } : null };
+      await saveRecord(S.savedRecord);
+      $('#btn-save').disabled = true;
+      $('#btn-save').textContent = '저장됨';
+      toast('실제 결과를 갱신했어요.');
+    } catch (err) {
+      toast(`저장하지 못했어요: ${err?.message || err}`, 5000);
+    }
+    return;
+  }
   const id = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const record = {
     id,
@@ -643,13 +695,17 @@ $('#btn-save').addEventListener('click', async () => {
     notes: S.result.notes,
     snapshots: S.snapshots || {},
     guides: lineTool.toJSON(),
+    features: featuresFrom(S.result),
+    outcome: hasOutcome(S.outcome) ? { ...S.outcome } : null,
     diag: { ...S.analysisDiag, model: S.poseInfo?.model, delegate: S.poseInfo?.delegate, vfr: !!S.meta?.isVFR },
   };
   try {
     await saveRecord(record);
     S.saved = true;
+    S.savedRecord = record;
     $('#btn-save').disabled = true;
-    toast('기록에 저장했어요.');
+    $('#btn-save').textContent = '저장됨';
+    toast(hasOutcome(record.outcome) ? '기록과 실제 결과를 저장했어요.' : '기록에 저장했어요. 실제 결과는 기록 탭에서 나중에 입력할 수 있어요.', 3500);
   } catch (err) {
     toast(`저장하지 못했어요: ${err?.message || err}`, 5000);
   }
@@ -709,7 +765,9 @@ async function renderHistory() {
   }
   const est = await storageEstimate();
   $('#history-usage').textContent = `${rows.length}개 저장됨${est?.usage ? ` · 사용량 약 ${fmt(est.usage / 1048576, 1)}MB` : ''}`;
+  $('#learn-status').innerHTML = learningStatusHTML(rows);
   if (!rows.length) { list.innerHTML = '<p class="empty">아직 저장한 기록이 없어요.</p>'; return; }
+  const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
   list.innerHTML = rows.map((r) => {
     const thumbs = PHASES.map((k) => {
       const b = r.snapshots?.[k];
@@ -727,9 +785,40 @@ async function renderHistory() {
       <div class="rec-stats">${r.view === 'face' ? '정면' : '후방'} · ${r.mode === 'slowmo' ? `슬로모션 ${r.captureFps || ''}` : '일반'} · 백스윙 ${fmt(r.tempo.backSec, 2)}초 / 다운스윙 ${fmt(r.tempo.downSec, 2)}초</div>
       <div class="rec-thumbs">${thumbs}</div>
       <div class="rec-stats">${stats}</div>
-      <div class="rec-actions"><button type="button" class="btn btn-small" data-del="${r.id}">삭제</button></div>
+      <div class="rec-outcome">${hasOutcome(r.outcome) ? `🎯 ${outcomeSummary(r.outcome)}` : '<span class="muted-inline">실제 결과 미입력</span>'}</div>
+      <div class="rec-form" data-form="${r.id}" hidden></div>
+      <div class="rec-actions">
+        <button type="button" class="btn btn-small" data-outcome="${r.id}">${hasOutcome(r.outcome) ? '결과 수정' : '결과 입력'}</button>
+        <button type="button" class="btn btn-small" data-del="${r.id}">삭제</button>
+      </div>
     </div>`;
   }).join('');
+  list.querySelectorAll('[data-outcome]').forEach((b) => b.addEventListener('click', () => {
+    const r = byId[b.dataset.outcome];
+    const box = list.querySelector(`[data-form="${r.id}"]`);
+    if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false;
+    let draft = r.outcome ? { ...r.outcome } : emptyOutcome(settings.lastClub);
+    const formBox = document.createElement('div');
+    box.innerHTML = '';
+    box.append(formBox);
+    mountOutcomeForm(formBox, draft, (o) => { draft = o; });
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'btn btn-primary btn-block';
+    save.textContent = '결과 저장';
+    save.addEventListener('click', async () => {
+      try {
+        await saveRecord({ ...r, features: r.features || featuresFrom(r), outcome: hasOutcome(draft) ? draft : null });
+        if (draft.club) { settings.lastClub = draft.club; saveSettings(); }
+        toast('실제 결과를 저장했어요.');
+        renderHistory();
+      } catch (err) {
+        toast(`저장하지 못했어요: ${err?.message || err}`, 5000);
+      }
+    });
+    box.append(save);
+  }));
   list.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
     if (!confirm('이 기록을 삭제할까요?')) return;
     await deleteRecord(b.dataset.del);

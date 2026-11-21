@@ -12,7 +12,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=3" />
+<link rel="stylesheet" href="styles.css?v=5" />
 </head>
 <body>
 <div class="app">
@@ -167,8 +167,15 @@
         <h2><span class="num">6</span>결과</h2>
         <div id="result-body"></div>
         <div class="snapshots" id="snapshots"></div>
+        <section class="outcome-box">
+          <h3>공 방향·거리 추측</h3>
+          <div id="predict-body"></div>
+          <h3>실제 결과 기록 <em class="opt">선택</em></h3>
+          <p class="hint" style="margin-top:0">공이 실제로 어떻게 갔는지 적어 두면, 기록이 쌓일수록 추측이 정확해져요. 기록 탭에서 나중에 입력해도 돼요.</p>
+          <div id="outcome-form"></div>
+        </section>
         <button type="button" class="btn btn-primary btn-block" id="btn-save">기록에 저장</button>
-        <p class="hint">저장 항목: 분석 수치와 4구간 스냅샷 이미지만 (원본 영상은 저장하지 않아요)</p>
+        <p class="hint">저장 항목: 분석 수치·실제 결과·4구간 스냅샷 이미지만 (원본 영상은 저장하지 않아요)</p>
       </article>
 
       <!-- 진단 정보 -->
@@ -235,6 +242,7 @@
       <article class="card">
         <h2>내 스윙 기록</h2>
         <p class="muted" id="history-usage"></p>
+        <div class="learn-box"><b>추측 학습 현황</b><div id="learn-status"></div></div>
         <div id="history-list" class="history-list"></div>
       </article>
     </section>
@@ -279,7 +287,7 @@
         </div>
         <div class="field">
           <span class="field-label">이 앱에 대해</span>
-          <p class="hint">자세 인식: Google MediaPipe Pose Landmarker (<span id="mp-version"></span>) · 영상은 브라우저 안에서만 처리돼요. 비거리·구질 예측은 휴대폰 1대 영상으로는 신뢰할 수 없어 제공하지 않아요.</p>
+          <p class="hint">자세 인식: Google MediaPipe Pose Landmarker (<span id="mp-version"></span>) · 영상은 브라우저 안에서만 처리돼요. 공 방향·거리는 영상으로 직접 계산하지 않고, 내가 입력한 실제 결과로 학습해 추측해요.</p>
         </div>
       </article>
     </section>
@@ -287,6 +295,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </div>
-<script type="module" src="js/app.js?v=3"></script>
+<script type="module" src="js/app.js?v=5"></script>
 </body>
 </html>

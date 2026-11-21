@@ -41,7 +41,9 @@ test('후방: 척추 전경각 변화만 계산', () => {
   });
   const r = computeMetrics(samples, TRUTH, { view: 'dtl', aspect: 1, timeScale: 1 });
   const keys = r.items.map((i) => i.key);
-  assert.deepEqual(keys, ['spineAddress', 'spineTopChange', 'spineImpactChange']);
+  assert.deepEqual(keys.slice(0, 3), ['spineAddress', 'spineTopChange', 'spineImpactChange']);
+  assert.ok(keys.includes('handSpeed'));
+  assert.ok(!keys.some((k) => k.startsWith('head') || k.includes('Sway')), '후방에서는 머리·스웨이 제외');
   const imp = r.items.find((i) => i.key === 'spineImpactChange');
   assert.ok(imp.value < -5, `일어섬 감지: ${imp.value}`);
   assert.match(imp.detail, /일어섬/);
@@ -76,4 +78,31 @@ test('키 입력 시 % 항목에 cm 환산, 미입력·잘못된 값이면 cm �
   assert.equal(validHeight(50), null);
   assert.equal(validHeight(''), null);
   assert.equal(validHeight('abc'), null);
+});
+
+test('다운스윙 손 속도: 신장/초, 실시간·슬로모션에서 같은 값', async () => {
+  const { handSpeedPeak } = await import('../js/metrics.js');
+  const a = handSpeedPeak(makeSamples(), TRUTH, 1, 1);
+  const slow = makeSamples({ timeScale: 1 / 8 });
+  const slowTimes = Object.fromEntries(Object.entries(TRUTH).map(([k, v]) => [k, v * 8]));
+  const b = handSpeedPeak(slow, slowTimes, 1, 1 / 8);
+  assert.ok(a.heightsPerSec > 0.5, String(a.heightsPerSec));
+  assert.ok(Math.abs(a.heightsPerSec - b.heightsPerSec) < 1e-6);
+});
+
+test('후방: 다운스윙 손이 공 쪽으로 지나가면 + (오버더톱)', async () => {
+  const { handPathOffset } = await import('../js/metrics.js');
+  // 다운스윙 동안 손을 공 쪽(골반보다 손이 있는 쪽 = +x)으로 0.04 밀어냄
+  const samples = makeSamples({
+    mutate: (lm, tr) => {
+      if (tr > TRUTH.top && tr < TRUTH.impact) {
+        const bump = 0.04 * Math.sin(Math.PI * (tr - TRUTH.top) / (TRUTH.impact - TRUTH.top));
+        lm[15] = { ...lm[15], x: lm[15].x + bump }; lm[16] = { ...lm[16], x: lm[16].x + bump };
+      }
+      // 어드레스에서 손이 골반보다 +x(공 쪽)에 있도록
+      lm[23] = { ...lm[23], x: lm[23].x - 0.06 }; lm[24] = { ...lm[24], x: lm[24].x - 0.06 };
+    },
+  });
+  const r = handPathOffset(samples, TRUTH, 1);
+  assert.ok(r && r.pct > 0, JSON.stringify(r));
 });

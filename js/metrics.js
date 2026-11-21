@@ -3,7 +3,7 @@
 // - 후방(down-the-line): 템포, 척추 전경각 유지
 // 이동량은 카메라 거리에 무관하도록 픽셀·cm가 아닌 "추정 신장 대비 %"로 낸다.
 
-import { LM, mid, dist, toUnit } from './series.js';
+import { LM, mid, dist, toUnit, pointSeries, smooth, speedSeries } from './series.js';
 import { handsOf } from './phases.js';
 
 /** 코~발목 거리 ÷ 신장의 평균 비율(성인 인체 비례 근사). 서 있는 자세에서의 값이다. */
@@ -210,6 +210,84 @@ export function computeMetrics(samples, times, { view, aspect, timeScale, height
     if (Object.values(vis).some((v) => v < 0.6)) {
       notes.push('후방 촬영은 탑·임팩트에서 팔과 어깨가 몸통을 가려 관절 인식 신뢰도가 낮아질 수 있어요. "신뢰도 낮음" 표시 항목은 참고만 하세요.');
     }
+    const path = handPathOffset(samples, times, aspect);
+    if (path) {
+      items.push({
+        key: 'handPathDown', label: '다운스윙 손 경로 (백스윙 대비)',
+        value: path.pct, unit: '%', signed: true,
+        detail: path.pct > 0 ? '바깥쪽(공 쪽) — 오버더톱 경향' : '안쪽(몸 쪽) — 인사이드 경향',
+        grade: 'info',
+        hint: '같은 높이에서 다운스윙 손이 백스윙 손보다 공 쪽(+)/몸 쪽(−)으로 지나간 정도(신장 대비). 손 경로이며 클럽 헤드 경로와는 다를 수 있어요.',
+        lowConfidence: path.levels < 3,
+      });
+    }
+  }
+
+  // 다운스윙 최대 손 속도(두 방향 공통). 샘플이 실제 30fps 간격이라 실제보다 낮게 나오므로 기록끼리 비교용.
+  const speed = handSpeedPeak(samples, times, aspect, timeScale);
+  if (speed) {
+    const h = validHeight(heightCm);
+    items.push({
+      key: 'handSpeed', label: '다운스윙 최대 손 속도',
+      value: speed.heightsPerSec, unit: '신장/초',
+      detail: h ? `약 ${(speed.heightsPerSec * h / 100).toFixed(1)}m/s` : '',
+      grade: 'info',
+      hint: `샘플 간격(실제 약 ${Math.round(speed.sampleMs)}ms) 때문에 실제보다 낮게 측정돼요. 내 기록끼리 비교하는 용도예요.${view === 'dtl' ? ' 후방 영상은 카메라 쪽 움직임이 빠져 더 낮게 나와요.' : ''}`,
+    });
   }
   return { tempo, items, notes };
+}
+
+/** 다운스윙(탑~임팩트 직후) 손의 최대 속력: 신장/초 */
+export function handSpeedPeak(samples, times, aspect, timeScale) {
+  const H = estimateHeightUnits(samples, aspect);
+  const hands = pointSeries(samples, handsOf, aspect);
+  if (!(H > 0) || !hands) return null;
+  const tr = samples.map((s) => s.t * timeScale);
+  const sp = speedSeries(smooth(hands, 3), tr);
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    if (samples[i].t >= times.top && samples[i].t <= times.impact + 1e-6) peak = Math.max(peak, sp[i]);
+  }
+  if (!(peak > 0)) return null;
+  const sampleMs = samples.length > 1 ? ((tr[tr.length - 1] - tr[0]) / (samples.length - 1)) * 1000 : 0;
+  return { heightsPerSec: peak / H, sampleMs };
+}
+
+/** 경로(시간순 점 배열)가 높이 y를 처음 지나는 x */
+function xAtY(path, y) {
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i];
+    if ((a.y - y) * (b.y - y) <= 0 && a.y !== b.y) return a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x);
+  }
+  return null;
+}
+
+/**
+ * 후방 영상: 같은 높이에서 다운스윙 손이 백스윙 손보다 공 쪽(+)으로 지나간 정도(신장 대비 %)
+ * 공 쪽 방향은 어드레스에서 골반 중심→손 방향으로 판단한다(오른손/왼손잡이 자동).
+ */
+export function handPathOffset(samples, times, aspect) {
+  const H = estimateHeightUnits(samples, aspect);
+  const all = pointSeries(samples, handsOf, aspect);
+  if (!(H > 0) || !all) return null;
+  const hands = smooth(all, 3);
+  const back = [], down = [];
+  samples.forEach((s, i) => {
+    if (s.t >= times.address && s.t <= times.top + 1e-6) back.push(hands[i]);
+    if (s.t >= times.top - 1e-6 && s.t <= times.impact + 1e-6) down.push(hands[i]);
+  });
+  const lmA = landmarksAt(samples, times.address);
+  if (back.length < 3 || down.length < 3 || !lmA) return null;
+  const hipA = toUnit(mid(lmA[LM.L_HIP], lmA[LM.R_HIP]), aspect);
+  const ballSide = Math.sign(back[0].x - hipA.x) || 1;
+  const yTop = down[0].y, yImp = down[down.length - 1].y;
+  const diffs = [];
+  for (const r of [0.2, 0.35, 0.5, 0.65, 0.8]) {
+    const y = yTop + (yImp - yTop) * r;
+    const xb = xAtY(back, y), xd = xAtY(down, y);
+    if (xb !== null && xd !== null) diffs.push((xd - xb) * ballSide);
+  }
+  if (!diffs.length) return null;
+  return { pct: (diffs.reduce((a, b) => a + b, 0) / diffs.length / H) * 100, levels: diffs.length };
 }
