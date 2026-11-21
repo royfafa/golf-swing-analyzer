@@ -226,3 +226,37 @@ select, input[type="number"] {
 }
 
 .metric .cm { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+
+/* ===== 보조선 도구 ===== */
+.stage canvas.is-drawing { pointer-events: auto; touch-action: none; cursor: crosshair; }
+.draw-tools { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.chip-btn {
+  min-height: 36px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface-2); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.chip-btn.is-on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.draw-hint { min-height: 0; margin-top: 4px; }
+.draw-hint:empty { display: none; }
+
+/* ===== 비교 ===== */
+.tab { font-size: 13.5px; }
+.cmp-stages { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.cmp-stages.is-row { grid-template-columns: 1fr 1fr; }
+.cmp-col { position: relative; min-width: 0; border-radius: 12px; outline: 2px solid transparent; outline-offset: 2px; }
+.cmp-col.is-target { outline-color: var(--accent); }
+.cmp-label {
+  position: absolute; top: 6px; left: 6px; z-index: 2; background: rgba(0,0,0,.6); color: #fff;
+  font-weight: 800; font-size: 12px; padding: 1px 8px; border-radius: 999px;
+}
+.cmp-stage { width: min(100%, calc(30svh * var(--ar-num, 1.777))); }
+.cmp-stages.is-row .cmp-stage { width: 100%; max-height: 52svh; }
+.cmp-empty {
+  display: grid; place-items: center; min-height: 120px; border: 1px dashed var(--line); border-radius: 10px;
+  color: var(--muted); font-size: 13px;
+}
+.cmp-target { margin-top: 10px; }
+.seg button:disabled { opacity: .4; cursor: not-allowed; }
+.cmp-tools { display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; margin-top: 8px; }
+.cmp-tools .btn[hidden] + .btn { grid-column: 1 / -1; }
+.cmp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.cmp-diag-box { margin: 10px 0 0; padding: 10px 12px; }

@@ -12,6 +12,8 @@ import { suggestPhases, phasesInOrder, PHASES, PHASE_LABEL } from './phases.js';
 import { computeMetrics, landmarksAt, validHeight } from './metrics.js';
 import { drawSkeleton, drawHandTrail, drawHeadReference, SEG_COLORS } from './render.js';
 import { saveRecord, listRecords, deleteRecord, storageEstimate } from './store.js';
+import { createLineTool, autoAnchors, drawLines } from './lines.js';
+import { initCompare } from './compare.js';
 
 const $ = (s) => document.querySelector(s);
 const video = $('#video');
@@ -116,6 +118,8 @@ async function loadFile(file) {
   S.meta = null;
   S.playbackFps = null;
   S.trim = { start: null, end: null };
+  lineTool.clear();
+  lineTool.setMode(null);
   video.src = S.url;
   try {
     await waitForMetadata();
@@ -309,6 +313,17 @@ function draw() {
   if (overlay.width !== w || overlay.height !== h) { overlay.width = w; overlay.height = h; }
   const ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, w, h);
+  drawPose(ctx, w, h);
+  lineTool.draw(ctx, w, h, currentAnchors());
+}
+
+/** 자동 보조선 기준점: 확정(또는 제안)된 어드레스 자세 */
+function currentAnchors() {
+  if (!S.samples?.length || !S.phases) return null;
+  return autoAnchors(landmarksAt(S.samples, S.phases.address));
+}
+
+function drawPose(ctx, w, h) {
   if (!S.samples?.length) return;
   const t = video.currentTime;
   const first = S.samples[0].t, last = S.samples[S.samples.length - 1].t;
@@ -318,6 +333,32 @@ function draw() {
   drawHandTrail(ctx, S.samples, t, S.phases, w, h, lw);
   drawSkeleton(ctx, landmarksAt(S.samples, t), w, h, { lineWidth: lw });
 }
+
+/* ---------------- 보조선 ---------------- */
+const lineTool = createLineTool(overlay, {
+  onChange: () => { draw(); renderDrawTools(); },
+  onHint: (m) => { $('#draw-hint').textContent = m; },
+});
+function renderDrawTools() {
+  const st = lineTool.state;
+  $('#btn-draw-line').classList.toggle('is-on', st.mode === 'line');
+  $('#btn-draw-ball').classList.toggle('is-on', st.mode === 'ball');
+  $('#btn-draw-toggle').textContent = st.visible ? '👁 숨기기' : '👁 보이기';
+  if (!st.mode && st.ball) {
+    $('#draw-hint').textContent = currentAnchors()
+      ? '빨강 = 공→어깨, 노랑 = 공→손 (어드레스 자세 기준, 점선은 연장선). 어드레스를 다시 지정하면 함께 바뀌어요.'
+      : '공 위치를 저장했어요. 자세 분석을 마치면 공→어깨, 공→손 선이 그려져요.';
+  }
+}
+$('#btn-draw-line').addEventListener('click', () => { if (!video.paused) video.pause(); lineTool.setMode('line'); });
+$('#btn-draw-ball').addEventListener('click', () => {
+  if (!video.paused) video.pause();
+  const m = lineTool.setMode('ball');
+  if (m && S.view === 'face') $('#draw-hint').textContent += ' (자동선은 후방 영상에서 의미가 있어요)';
+});
+$('#btn-draw-undo').addEventListener('click', () => { if (!lineTool.undo()) toast('되돌릴 선이 없어요.'); });
+$('#btn-draw-clear').addEventListener('click', () => { lineTool.clear(); lineTool.setMode(null); });
+$('#btn-draw-toggle').addEventListener('click', () => lineTool.toggleVisible());
 new ResizeObserver(() => draw()).observe(overlay);
 
 /* ---------------- 3. 트림 ---------------- */
@@ -472,6 +513,7 @@ function renderPhases() {
   if (!S.edited.impact) warns.push('임팩트 프레임을 영상으로 직접 확인해 주세요. (원본 1프레임 단위로 조정 가능)');
   $('#phase-warnings').innerHTML = warns.map((w) => `<li>${w}</li>`).join('');
   draw();
+  renderDrawTools();
 }
 
 $('#btn-set-phase').addEventListener('click', () => {
@@ -565,6 +607,7 @@ async function makeSnapshots() {
     await seekTo(video, S.phases[k]);
     ctx.drawImage(video, 0, 0, W, H);
     drawSkeleton(ctx, landmarksAt(S.samples, S.phases[k]), W, H, { lineWidth: 2 });
+    drawLines(ctx, W, H, { ...lineTool.toJSON(), visible: lineTool.state.visible }, currentAnchors());
     // eslint-disable-next-line no-await-in-loop
     S.snapshots[k] = await new Promise((r) => cv.toBlob((b) => r(b), 'image/jpeg', 0.72));
   }
@@ -599,6 +642,7 @@ $('#btn-save').addEventListener('click', async () => {
     items: S.result.items.map(({ key, label, value, unit, grade, detail, signed, lowConfidence, cm }) => ({ key, label, value, unit, grade, detail, signed: !!signed, lowConfidence: !!lowConfidence, cm: Number.isFinite(cm) ? cm : null })),
     notes: S.result.notes,
     snapshots: S.snapshots || {},
+    guides: lineTool.toJSON(),
     diag: { ...S.analysisDiag, model: S.poseInfo?.model, delegate: S.poseInfo?.delegate, vfr: !!S.meta?.isVFR },
   };
   try {
@@ -720,6 +764,17 @@ heightInput.addEventListener('change', () => {
   saveSettings();
   // 이미 결과가 있으면 cm 환산을 다시 반영(저장 전 상태로 돌아감)
   if (S.result) buildResult();
+});
+
+/* ---------------- 비교 ---------------- */
+initCompare({
+  toast,
+  // 분석 탭에서 확정한 영상을 비교 슬롯으로 가져오기
+  getAnalysisSource: () => (S.file ? {
+    file: S.file, fileFps: S.fileFps, mode: S.mode, captureFps: S.captureFps, fileType: S.fileType,
+    impact: S.result ? S.phases?.impact ?? null : null, meta: S.meta,
+  } : null),
+  onEnter: () => { if (!video.paused) video.pause(); },
 });
 
 // 테스트·디버깅용으로 상태를 노출(동작에는 영향 없음)

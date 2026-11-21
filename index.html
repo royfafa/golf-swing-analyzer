@@ -12,7 +12,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=2" />
+<link rel="stylesheet" href="styles.css?v=3" />
 </head>
 <body>
 <div class="app">
@@ -21,8 +21,9 @@
     <div class="brand"><span class="brand-mark" aria-hidden="true">⛳</span><strong>스윙 분석기</strong></div>
     <nav class="tabs" aria-label="화면 전환">
       <button type="button" class="tab is-active" data-tab="analyze">분석</button>
+      <button type="button" class="tab" data-tab="compare">비교</button>
       <button type="button" class="tab" data-tab="history">기록</button>
-      <button type="button" class="tab" data-tab="guide">촬영 가이드</button>
+      <button type="button" class="tab" data-tab="guide">가이드</button>
       <button type="button" class="tab" data-tab="settings">설정</button>
     </nav>
   </header>
@@ -112,6 +113,14 @@
           </select>
         </div>
         <div class="timecode" id="timecode">영상 0.000초 · 실제 0.000초 · 프레임 0</div>
+        <div class="draw-tools" role="toolbar" aria-label="보조선">
+          <button type="button" class="chip-btn" id="btn-draw-line">✏️ 선 긋기</button>
+          <button type="button" class="chip-btn" id="btn-draw-ball">⚾ 공 위치</button>
+          <button type="button" class="chip-btn" id="btn-draw-undo">↶</button>
+          <button type="button" class="chip-btn" id="btn-draw-clear">🗑</button>
+          <button type="button" class="chip-btn" id="btn-draw-toggle">👁 숨기기</button>
+        </div>
+        <p class="hint draw-hint" id="draw-hint"></p>
       </article>
 
       <!-- 3. 트림 -->
@@ -167,6 +176,58 @@
         <summary>진단 정보 (실기기 검증용)</summary>
         <dl id="diag-list"></dl>
       </details>
+    </section>
+
+    <!-- ============ 비교 ============ -->
+    <section class="panel" id="panel-compare" hidden>
+      <article class="card">
+        <h2>스윙 비교</h2>
+        <p class="muted" style="margin:0">영상 2개를 <b>임팩트 순간</b>에 맞춰 나란히 봐요. 같은 촬영 방향끼리 비교하세요. 영상은 저장되지 않아요.</p>
+      </article>
+
+      <article class="card cmp-viewer" id="cmp-viewer" hidden>
+        <div class="cmp-stages" id="cmp-stages">
+          <div class="cmp-col" data-slot="A">
+            <div class="cmp-label">A</div>
+            <div class="stage cmp-stage" hidden><video playsinline muted preload="auto"></video></div>
+            <div class="cmp-empty">영상 A 없음</div>
+          </div>
+          <div class="cmp-col" data-slot="B">
+            <div class="cmp-label">B</div>
+            <div class="stage cmp-stage" hidden><video playsinline muted preload="auto"></video></div>
+            <div class="cmp-empty">영상 B 없음</div>
+          </div>
+        </div>
+        <div class="seg seg-3 cmp-target" id="cmp-target" role="radiogroup" aria-label="조정 대상">
+          <button type="button" data-value="A">A 조정</button>
+          <button type="button" data-value="B">B 조정</button>
+          <button type="button" data-value="sync">함께 보기</button>
+        </div>
+        <input type="range" id="cmp-scrub" class="scrub" min="0" max="1000" step="1" value="0" aria-label="비교 위치" />
+        <div class="transport">
+          <button type="button" class="icon-btn" id="cmp-prev" title="1프레임 뒤로">◀︎1</button>
+          <button type="button" class="icon-btn play" id="cmp-play" title="재생/일시정지">▶︎</button>
+          <button type="button" class="icon-btn" id="cmp-next" title="1프레임 앞으로">1▶︎</button>
+          <select id="cmp-rate" aria-label="실제 시간 기준 재생 속도">
+            <option value="0.125">⅛×</option>
+            <option value="0.25" selected>¼×</option>
+            <option value="0.5">½×</option>
+            <option value="1">1×</option>
+          </select>
+        </div>
+        <div class="timecode" id="cmp-timecode"></div>
+        <div class="cmp-tools">
+          <button type="button" class="btn btn-primary" id="cmp-set-impact">현재 프레임 = A 임팩트</button>
+          <button type="button" class="btn" id="cmp-to-impact">임팩트로</button>
+        </div>
+        <p class="hint" id="cmp-hint"></p>
+        <details class="diag cmp-diag-box">
+          <summary>비교 진단 정보</summary>
+          <dl id="cmp-diag"></dl>
+        </details>
+      </article>
+
+      <div id="cmp-slots"></div>
     </section>
 
     <!-- ============ 기록 ============ -->
@@ -226,6 +287,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </div>
-<script type="module" src="js/app.js?v=2"></script>
+<script type="module" src="js/app.js?v=3"></script>
 </body>
 </html>
