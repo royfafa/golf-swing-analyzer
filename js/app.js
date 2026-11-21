@@ -14,6 +14,7 @@ import { drawSkeleton, drawHandTrail, drawHeadReference, SEG_COLORS } from './re
 import { saveRecord, listRecords, deleteRecord, storageEstimate } from './store.js';
 import { createLineTool, autoAnchors, drawLines } from './lines.js';
 import { initCompare } from './compare.js';
+import { initLearn } from './learn.js';
 import { predictSwing, featuresFrom } from './predict.js';
 import { mountOutcomeForm, predictionHTML, learningStatusHTML, outcomeSummary, hasOutcome, withFeatures, emptyOutcome } from './outcome.js';
 
@@ -434,6 +435,7 @@ $('#btn-abort').addEventListener('click', () => { S.abort = true; $('#progress-t
 
 $('#btn-analyze').addEventListener('click', async () => {
   if (S.analyzing) return;
+  if (learnApi?.busy) { toast('학습 모드에서 영상을 분석 중이에요. 끝난 뒤에 다시 시도해 주세요.'); return; }
   const st = trimState();
   if (!S.view || !st.ok) return;
   resetAnalysis();
@@ -864,6 +866,19 @@ initCompare({
     impact: S.result ? S.phases?.impact ?? null : null, meta: S.meta,
   } : null),
   onEnter: () => { if (!video.paused) video.pause(); },
+});
+
+/* ---------------- 학습 모드 ---------------- */
+let learnApi = null;
+learnApi = initLearn({
+  toast,
+  getSettings: () => settings,
+  saveSettings,
+  openPanel: (name) => openTab(name),
+});
+$('#btn-learn-mode').addEventListener('click', () => {
+  if (S.analyzing) { toast('일반 분석이 끝난 뒤에 학습 모드를 열어 주세요.'); return; }
+  openTab('learn');
 });
 
 // 테스트·디버깅용으로 상태를 노출(동작에는 영향 없음)

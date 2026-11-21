@@ -86,3 +86,32 @@ export function phasesInOrder(times) {
   return PHASES.every((k) => Number.isFinite(times[k])) &&
     times.address < times.top && times.top < times.impact && times.impact < times.finish;
 }
+
+/**
+ * 학습 모드 자동 트림: 영상 전체를 듬성듬성 분석한 샘플에서 임팩트 위치를 어림잡아
+ * 임팩트 전 before초 ~ 후 after초(실제 시간) 구간을 돌려준다.
+ * 4구간 제안이 실패하면 손이 가장 빠른 순간을 임팩트로 본다.
+ * @returns {null|{start:number, end:number, impactGuess:number, method:'phases'|'peakSpeed'}}
+ */
+export function autoTrimWindow(samples, { aspect, timeScale, duration, before = 2.2, after = 1.3 }) {
+  const sug = suggestPhases(samples, { aspect, timeScale });
+  let impact = sug.times?.impact;
+  let method = 'phases';
+  if (!Number.isFinite(impact)) {
+    if (samples.filter((s) => s.lm).length < 3) return null;
+    const hands = pointSeries(samples, handsOf, aspect);
+    if (!hands) return null;
+    const tr = samples.map((s) => s.t * timeScale);
+    const sp = speedSeries(smooth(hands, 3), tr);
+    const i = argMax(sp);
+    if (i < 0 || !(sp[i] > 0)) return null;
+    impact = samples[i].t;
+    method = 'peakSpeed';
+  }
+  return {
+    start: Math.max(0, impact - before / timeScale),
+    end: Math.min(duration - 1e-3, impact + after / timeScale),
+    impactGuess: impact,
+    method,
+  };
+}

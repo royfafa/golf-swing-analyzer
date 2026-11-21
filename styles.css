@@ -283,3 +283,30 @@ select, input[type="number"] {
 .rec-form { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px; }
 .learn-box { background: var(--surface-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; font-size: 13.5px; }
 .learn-list { margin: 6px 0 0; padding-left: 18px; }
+
+/* ===== 학습 모드 ===== */
+.learn-entry { margin-top: 8px; }
+.offscreen-video { position: fixed; left: -10px; top: -10px; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+#learn-stage { width: min(100%, calc(46svh * var(--ar-num, 1.777))); }
+#learn-stage canvas { pointer-events: none; }
+.learn-queue { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: 6px; max-height: 40svh; overflow: auto; }
+.q-item { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.q-item[role="button"] { cursor: pointer; }
+.q-item.is-current { outline: 2px solid var(--accent); outline-offset: -1px; background: var(--accent-soft); }
+.q-num { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--surface-2); display: grid; place-items: center; font-weight: 700; font-size: 12px; }
+.q-body { min-width: 0; display: grid; }
+.q-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-status { color: var(--muted); }
+.q-ready .q-status { color: var(--accent); font-weight: 600; }
+.q-failed .q-status { color: var(--warn); }
+.q-saved .q-num { background: var(--accent); color: var(--accent-ink); }
+.learn-impact { background: var(--surface-2); border-radius: 12px; padding: 10px 12px; margin: 10px 0; }
+.learn-impact-btns { display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; margin-top: 6px; }
+.learn-phases { margin: 8px 0; }
+.learn-phases summary { font-weight: 700; font-size: 14px; cursor: pointer; margin-bottom: 8px; }
+.learn-metrics { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12.5px; color: var(--muted); margin: 8px 0; }
+.learn-metrics b { color: var(--text); }
+.learn-h3 { font-size: 15px; margin: 12px 0 8px; }
+.learn-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; margin-top: 8px; position: sticky; bottom: calc(8px + env(safe-area-inset-bottom)); }
+.learn-actions .btn[hidden] + .btn { grid-column: 1 / -1; }
+.learn-summary { font-size: 13.5px; font-weight: 600; margin: 0 0 10px; }

@@ -12,7 +12,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=5" />
+<link rel="stylesheet" href="styles.css?v=7" />
 </head>
 <body>
 <div class="app">
@@ -40,6 +40,7 @@
           <input type="file" id="file-input" accept="video/*" hidden />
           📁 스윙 영상 선택
         </label>
+        <button type="button" class="btn btn-block learn-entry" id="btn-learn-mode">🎓 학습 모드 · 여러 영상 한 번에<span id="learn-open-btn-count"></span></button>
         <button type="button" class="link-btn" data-goto="guide">처음이라면 촬영 가이드 먼저 보기 →</button>
       </article>
 
@@ -185,6 +186,111 @@
       </details>
     </section>
 
+    <!-- ============ 학습 모드 ============ -->
+    <section class="panel" id="panel-learn" hidden>
+      <article class="card" id="learn-setup">
+        <h2>🎓 학습 모드</h2>
+        <p class="muted" id="learn-intro">여러 스윙 영상을 한 번에 넣으면 스윙 구간을 <b>자동으로 찾아 분석</b>해요. 영상마다 <b>임팩트만 확인</b>하고 실제 결과를 적으면 추측 학습 데이터가 쌓여요. 세션 설정은 한 번만 정해요.</p>
+        <p class="learn-summary" id="learn-summary" hidden></p>
+        <div id="learn-setup-fields">
+        <div class="field">
+          <span class="field-label">촬영 방향 <em class="req">필수</em></span>
+          <div class="seg" data-l="view" id="learn-view-seg">
+            <button type="button" data-value="face">정면 (Face-on)</button>
+            <button type="button" data-value="dtl">후방 (Down-the-line)</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">촬영 모드</span>
+          <div class="seg" data-l="mode">
+            <button type="button" data-value="normal">일반 (실시간)</button>
+            <button type="button" data-value="slowmo">슬로모션</button>
+          </div>
+        </div>
+        <div id="learn-slowmo" hidden>
+          <div class="field">
+            <label class="field-label" for="learn-capture">슬로모션 촬영 속도</label>
+            <select id="learn-capture"><option value="120">120fps (4배 느리게)</option><option value="240" selected>240fps (8배 느리게)</option></select>
+          </div>
+          <div class="field">
+            <span class="field-label">파일 형태</span>
+            <div class="seg seg-3" data-l="fileType">
+              <button type="button" data-value="auto">자동</button>
+              <button type="button" data-value="native">원본 고프레임</button>
+              <button type="button" data-value="slowed">느리게 재생됨</button>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="learn-default-fps">파일 정보가 없을 때 쓸 fps</label>
+          <select id="learn-default-fps"></select>
+          <p class="hint">MP4/MOV는 파일에서 fps를 직접 읽어요. 못 읽을 때만 이 값을 써요.</p>
+        </div>
+        <div class="field">
+          <label class="field-label" for="learn-club">기본 클럽</label>
+          <select id="learn-club"></select>
+          <p class="hint">영상마다 결과 입력에서 바꿀 수 있어요.</p>
+        </div>
+        </div>
+        <label class="btn btn-primary btn-block file-btn">
+          <input type="file" id="learn-files" accept="video/*" multiple hidden />
+          📁 영상 여러 개 선택 (추가 가능)
+        </label>
+        <p class="hint">이 화면을 닫으면 진행 중인 세션은 사라져요(저장한 기록은 남아요). 분석 중에도 앞쪽에서 확인·입력을 계속할 수 있어요.</p>
+        <button type="button" class="link-btn" id="learn-exit">← 일반 분석으로 돌아가기</button>
+      </article>
+
+      <article class="card" id="learn-queue" hidden>
+        <h2>진행 상황 <span class="muted-inline" id="learn-count"></span></h2>
+        <div class="bar"><div class="fill" id="learn-fill"></div></div>
+        <ul class="learn-queue" id="learn-list"></ul>
+        <button type="button" class="btn btn-block" id="learn-stop">학습 끝내기</button>
+      </article>
+
+      <article class="card" id="learn-review" hidden>
+        <h2 id="learn-review-title"></h2>
+        <div class="stage" id="learn-stage">
+          <video id="learn-video" playsinline muted preload="auto"></video>
+          <canvas id="learn-overlay"></canvas>
+        </div>
+        <div class="transport" style="margin-top:8px">
+          <button type="button" class="icon-btn" id="learn-prev-sample" title="샘플 간격만큼 뒤로">⏪</button>
+          <button type="button" class="icon-btn" id="learn-prev-frame" title="원본 1프레임 뒤로">◀︎1</button>
+          <button type="button" class="icon-btn play" id="learn-play" title="재생/일시정지">▶︎</button>
+          <button type="button" class="icon-btn" id="learn-next-frame" title="원본 1프레임 앞으로">1▶︎</button>
+          <button type="button" class="icon-btn" id="learn-next-sample" title="샘플 간격만큼 앞으로">⏩</button>
+        </div>
+        <div class="timecode" id="learn-timecode"></div>
+        <div class="learn-impact">
+          <div>임팩트 <b id="learn-impact-time"></b></div>
+          <div class="learn-impact-btns">
+            <button type="button" class="btn btn-primary" id="learn-set-impact">현재 프레임 = 임팩트</button>
+            <button type="button" class="btn" id="learn-to-impact">임팩트로</button>
+          </div>
+          <p class="hint">임팩트 프레임에서는 영상 테두리가 주황색으로 표시돼요.</p>
+        </div>
+        <ul class="warn-list" id="learn-warnings"></ul>
+        <details class="learn-phases" id="learn-phases">
+          <summary>4구간 모두 보기·조정</summary>
+          <div class="phase-chips" id="learn-chips"></div>
+          <div class="phase-tools">
+            <button type="button" class="btn" id="learn-set-phase">현재 프레임으로</button>
+            <button type="button" class="btn" id="learn-reset-phases">자동값으로</button>
+          </div>
+        </details>
+        <div class="learn-metrics" id="learn-metrics"></div>
+        <h3 class="learn-h3">실제 결과</h3>
+        <div id="learn-outcome"></div>
+        <div class="learn-actions">
+          <button type="button" class="btn" id="learn-skip">건너뛰기</button>
+          <button type="button" class="btn btn-primary" id="learn-save">저장 후 다음 ▶</button>
+        </div>
+      </article>
+
+      <!-- 뒤쪽 분석용(화면에 보이지 않게, 일부 브라우저는 DOM에 있어야 디코딩함) -->
+      <video id="learn-worker-video" class="offscreen-video" playsinline muted preload="auto" aria-hidden="true"></video>
+    </section>
+
     <!-- ============ 비교 ============ -->
     <section class="panel" id="panel-compare" hidden>
       <article class="card">
@@ -295,6 +401,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </div>
-<script type="module" src="js/app.js?v=5"></script>
+<script type="module" src="js/app.js?v=7"></script>
 </body>
 </html>
