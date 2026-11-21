@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>스윙 분석기</title>
+<meta name="description" content="스마트폰으로 찍은 골프 스윙 영상의 템포·머리 움직임·스웨이·척추각을 브라우저 안에서 분석합니다." />
+<meta name="theme-color" content="#0d1210" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+<link rel="stylesheet" href="styles.css?v=1" />
+</head>
+<body>
+<div class="app">
+
+  <header class="app-header">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">⛳</span><strong>스윙 분석기</strong></div>
+    <nav class="tabs" aria-label="화면 전환">
+      <button type="button" class="tab is-active" data-tab="analyze">분석</button>
+      <button type="button" class="tab" data-tab="history">기록</button>
+      <button type="button" class="tab" data-tab="guide">촬영 가이드</button>
+      <button type="button" class="tab" data-tab="settings">설정</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ 분석 ============ -->
+    <section class="panel" id="panel-analyze">
+
+      <!-- 1. 업로드 -->
+      <article class="card" id="step-upload">
+        <h2><span class="num">1</span>영상 올리기</h2>
+        <p class="muted">휴대폰 기본 카메라로 찍은 영상(60fps 또는 슬로모션)을 갤러리에서 골라 주세요. 영상은 기기 밖으로 전송되지 않아요.</p>
+        <label class="btn btn-primary btn-block file-btn">
+          <input type="file" id="file-input" accept="video/*" hidden />
+          📁 스윙 영상 선택
+        </label>
+        <button type="button" class="link-btn" data-goto="guide">처음이라면 촬영 가이드 먼저 보기 →</button>
+      </article>
+
+      <!-- 2. 촬영 정보 -->
+      <article class="card" id="step-setup" hidden>
+        <h2><span class="num">2</span>촬영 정보 확인</h2>
+
+        <div class="field">
+          <span class="field-label">촬영 방향 <em class="req">필수</em></span>
+          <div class="seg" role="radiogroup" data-name="view">
+            <button type="button" role="radio" data-value="face">정면 (Face-on)</button>
+            <button type="button" role="radio" data-value="dtl">후방 (Down-the-line)</button>
+          </div>
+          <p class="hint" id="view-hint">방향에 따라 신뢰할 수 있는 지표만 계산해요.</p>
+        </div>
+
+        <div class="field">
+          <span class="field-label">촬영 모드</span>
+          <div class="seg" role="radiogroup" data-name="mode">
+            <button type="button" role="radio" data-value="normal" aria-checked="true" class="is-on">일반 (실시간)</button>
+            <button type="button" role="radio" data-value="slowmo">슬로모션</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="fps-select">파일 프레임레이트</label>
+          <select id="fps-select"></select>
+          <p class="hint" id="fps-hint"></p>
+        </div>
+
+        <div id="slowmo-fields" hidden>
+          <div class="field">
+            <label class="field-label" for="capture-fps">슬로모션 촬영 속도</label>
+            <select id="capture-fps">
+              <option value="120">120fps (4배 느리게)</option>
+              <option value="240" selected>240fps (8배 느리게)</option>
+            </select>
+          </div>
+          <div class="field">
+            <span class="field-label">파일 형태</span>
+            <div class="seg seg-3" role="radiogroup" data-name="fileType">
+              <button type="button" role="radio" data-value="auto" aria-checked="true" class="is-on">자동</button>
+              <button type="button" role="radio" data-value="native">원본 고프레임</button>
+              <button type="button" role="radio" data-value="slowed">느리게 재생됨</button>
+            </div>
+            <p class="hint">갤럭시·아이폰에서 공유한 슬로모션은 대부분 30fps로 "느리게 재생되는 파일"로 바뀌어 있어요. 아래 진단의 "실제 시간"이 실제 스윙 길이와 맞는지 확인해 주세요.</p>
+          </div>
+        </div>
+
+        <div class="timebase" id="timebase-box"></div>
+      </article>
+
+      <!-- 플레이어 (2~4단계 공용) -->
+      <article class="card player-card" id="player" hidden>
+        <div class="stage" id="stage">
+          <video id="video" playsinline muted preload="auto"></video>
+          <canvas id="overlay"></canvas>
+        </div>
+        <input type="range" id="scrub" class="scrub" min="0" max="1000" step="1" value="0" aria-label="영상 위치" />
+        <div class="transport">
+          <button type="button" class="icon-btn" id="btn-prev-sample" title="샘플 간격만큼 뒤로">⏪</button>
+          <button type="button" class="icon-btn" id="btn-prev-frame" title="원본 1프레임 뒤로">◀︎1</button>
+          <button type="button" class="icon-btn play" id="btn-play" title="재생/일시정지">▶︎</button>
+          <button type="button" class="icon-btn" id="btn-next-frame" title="원본 1프레임 앞으로">1▶︎</button>
+          <button type="button" class="icon-btn" id="btn-next-sample" title="샘플 간격만큼 앞으로">⏩</button>
+          <select id="rate" aria-label="재생 속도">
+            <option value="0.125">⅛×</option>
+            <option value="0.25">¼×</option>
+            <option value="0.5">½×</option>
+            <option value="1" selected>1×</option>
+          </select>
+        </div>
+        <div class="timecode" id="timecode">영상 0.000초 · 실제 0.000초 · 프레임 0</div>
+      </article>
+
+      <!-- 3. 트림 -->
+      <article class="card" id="step-trim" hidden>
+        <h2><span class="num">3</span>스윙 구간 자르기 <em class="req">필수</em></h2>
+        <p class="muted">어드레스 직전부터 피니시 직후까지 <b>실제 시간 약 2~3초</b>만 남겨 주세요. 이 구간만 분석해서 빠르고 안정적이에요.</p>
+        <div class="trim-row">
+          <button type="button" class="btn" id="btn-trim-start">⇤ 여기를 시작으로</button>
+          <button type="button" class="btn" id="btn-trim-end">여기를 끝으로 ⇥</button>
+        </div>
+        <div class="trim-bar" id="trim-bar"><div class="trim-sel" id="trim-sel"></div><div class="trim-head" id="trim-head"></div></div>
+        <p class="trim-info" id="trim-info">시작과 끝을 지정해 주세요.</p>
+      </article>
+
+      <!-- 4. 분석 -->
+      <article class="card" id="step-analyze" hidden>
+        <h2><span class="num">4</span>자세 분석</h2>
+        <p class="muted" id="analyze-desc"></p>
+        <button type="button" class="btn btn-primary btn-block" id="btn-analyze">분석 시작</button>
+        <div class="progress" id="progress" hidden>
+          <div class="bar"><div class="fill" id="progress-fill"></div></div>
+          <div class="progress-row">
+            <span id="progress-text">준비 중…</span>
+            <button type="button" class="btn btn-small" id="btn-abort">중단</button>
+          </div>
+        </div>
+      </article>
+
+      <!-- 5. 구간 확정 -->
+      <article class="card" id="step-phases" hidden>
+        <h2><span class="num">5</span>구간 확정</h2>
+        <p class="muted">자동으로 찾은 <b>제안값</b>이에요. 각 구간을 눌러 영상을 확인하고, 다르면 프레임을 옮긴 뒤 <b>"현재 프레임으로 지정"</b>을 눌러 주세요. 특히 <b>임팩트</b>는 꼭 확인해 주세요.</p>
+        <div class="phase-chips" id="phase-chips"></div>
+        <div class="phase-tools">
+          <button type="button" class="btn btn-primary" id="btn-set-phase">현재 프레임으로 지정</button>
+          <button type="button" class="btn" id="btn-reset-phases">제안값으로 되돌리기</button>
+        </div>
+        <ul class="warn-list" id="phase-warnings"></ul>
+        <button type="button" class="btn btn-primary btn-block" id="btn-confirm">이 구간으로 결과 보기</button>
+      </article>
+
+      <!-- 6. 결과 -->
+      <article class="card" id="step-result" hidden>
+        <h2><span class="num">6</span>결과</h2>
+        <div id="result-body"></div>
+        <div class="snapshots" id="snapshots"></div>
+        <button type="button" class="btn btn-primary btn-block" id="btn-save">기록에 저장</button>
+        <p class="hint">저장 항목: 분석 수치와 4구간 스냅샷 이미지만 (원본 영상은 저장하지 않아요)</p>
+      </article>
+
+      <!-- 진단 정보 -->
+      <details class="card diag" id="diag" hidden open>
+        <summary>진단 정보 (실기기 검증용)</summary>
+        <dl id="diag-list"></dl>
+      </details>
+    </section>
+
+    <!-- ============ 기록 ============ -->
+    <section class="panel" id="panel-history" hidden>
+      <article class="card">
+        <h2>내 스윙 기록</h2>
+        <p class="muted" id="history-usage"></p>
+        <div id="history-list" class="history-list"></div>
+      </article>
+    </section>
+
+    <!-- ============ 촬영 가이드 ============ -->
+    <section class="panel" id="panel-guide" hidden>
+      <article class="card guide">
+        <h2>촬영 가이드</h2>
+        <ol class="guide-list">
+          <li><b>삼각대로 고정하세요.</b> 손으로 들고 찍으면 화면이 흔들려 머리·골반 이동량이 그대로 오차가 돼요.</li>
+          <li><b>앞뒤로 2초 이상 여유를 두세요.</b> 어드레스 2초 전에 녹화를 시작하고 피니시 2초 후에 멈춰 주세요.
+            <span class="sub">아이폰 슬로모션은 영상 앞뒤 약 1초가 <b>보통 속도</b>로 재생돼요. 스윙이 이 구간에 걸리면 시간이 틀려집니다. 사진 앱 ‘편집’에서 느리게 재생되는 구간을 영상 전체로 넓힌 뒤 올리면 가장 안전해요.</span></li>
+          <li><b>몸 전체가 들어오게 찍으세요.</b> 머리 위(백스윙 탑의 손)부터 발끝, 공까지 모두 화면 안에 있어야 해요.</li>
+          <li><b>카메라 높이는 허리 높이, 거리는 약 3m.</b></li>
+          <li><b>방향을 정확히 맞추세요.</b>
+            <span class="sub"><b>정면(Face-on)</b>: 골퍼 가슴 정면에서, 공과 몸 중앙을 바라보게. → 템포·머리 이동·스웨이 분석</span>
+            <span class="sub"><b>후방(Down-the-line)</b>: 골퍼 뒤에서 타깃 방향을 바라보게, 손 위치와 일직선. → 템포·척추 전경각 분석</span></li>
+          <li><b>촬영 모드</b>
+            <span class="sub"><b>일반</b>: 카메라 설정에서 <b>60fps</b>를 권장해요(30fps는 다운스윙이 6~8프레임뿐이라 오차가 커요).</span>
+            <span class="sub"><b>슬로모션</b>: 120fps 또는 240fps. 올릴 때 촬영 속도를 꼭 맞게 선택해 주세요.</span></li>
+          <li><b>밝은 곳에서, 몸과 배경이 구분되는 옷</b>을 입으면 관절 인식이 정확해져요.</li>
+        </ol>
+      </article>
+    </section>
+
+    <!-- ============ 설정 ============ -->
+    <section class="panel" id="panel-settings" hidden>
+      <article class="card">
+        <h2>설정</h2>
+        <div class="field">
+          <span class="field-label">자세 인식 모델</span>
+          <div class="seg" role="radiogroup" data-name="model">
+            <button type="button" role="radio" data-value="full">정확 (full)</button>
+            <button type="button" role="radio" data-value="lite">빠름 (lite)</button>
+          </div>
+          <p class="hint">분석 처리 속도가 느리거나 기기가 뜨거워지면 ‘빠름’을 고르세요. (진단 정보의 “분석 처리 속도” 참고)</p>
+        </div>
+        <div class="field">
+          <span class="field-label">이 앱에 대해</span>
+          <p class="hint">자세 인식: Google MediaPipe Pose Landmarker (<span id="mp-version"></span>) · 영상은 브라우저 안에서만 처리돼요. 비거리·구질 예측은 휴대폰 1대 영상으로는 신뢰할 수 없어 제공하지 않아요.</p>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</div>
+<script type="module" src="js/app.js?v=1"></script>
+</body>
+</html>

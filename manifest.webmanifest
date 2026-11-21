@@ -1,0 +1,14 @@
+{
+  "name": "스윙 분석기",
+  "short_name": "스윙분석",
+  "description": "골프 스윙 영상의 템포·머리 움직임·스웨이·척추각을 브라우저 안에서 분석",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0d1210",
+  "theme_color": "#0d1210",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

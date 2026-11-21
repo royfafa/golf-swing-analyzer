@@ -1,0 +1,8 @@
+{
+  "name": "golf-swing-analyzer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}

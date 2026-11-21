@@ -1,0 +1,206 @@
+// 확정된 4구간을 바탕으로 촬영 방향별 "신뢰할 수 있는 지표"만 계산한다.
+// - 정면(face-on): 템포, 머리 좌우·상하 이동, 골반·상체 스웨이
+// - 후방(down-the-line): 템포, 척추 전경각 유지
+// 이동량은 카메라 거리에 무관하도록 픽셀·cm가 아닌 "추정 신장 대비 %"로 낸다.
+
+import { LM, mid, dist, toUnit } from './series.js';
+import { handsOf } from './phases.js';
+
+/** 코~발목 거리 ÷ 신장의 평균 비율(성인 인체 비례 근사). 서 있는 자세에서의 값이다. */
+const NOSE_TO_ANKLE_RATIO = 0.84;
+
+/** 영상 시간 t의 랜드마크를 앞뒤 샘플로 선형 보간한다. */
+export function landmarksAt(samples, t) {
+  let lo = -1, hi = -1;
+  for (let i = 0; i < samples.length; i++) {
+    if (!samples[i].lm) continue;
+    if (samples[i].t <= t) lo = i;
+    if (samples[i].t >= t) { hi = i; break; }
+  }
+  if (lo < 0 && hi < 0) return null;
+  if (lo < 0) return samples[hi].lm;
+  if (hi < 0 || hi === lo) return samples[lo].lm;
+  const a = samples[lo], b = samples[hi];
+  const r = (t - a.t) / (b.t - a.t);
+  return a.lm.map((p, k) => {
+    const q = b.lm[k];
+    return {
+      x: p.x + (q.x - p.x) * r,
+      y: p.y + (q.y - p.y) * r,
+      z: (p.z ?? 0) + ((q.z ?? 0) - (p.z ?? 0)) * r,
+      visibility: Math.min(p.visibility ?? 1, q.visibility ?? 1),
+    };
+  });
+}
+
+/** 평가 등급: good / ok / warn */
+function grade(value, goodMax, okMax) {
+  const v = Math.abs(value);
+  if (v <= goodMax) return 'good';
+  if (v <= okMax) return 'ok';
+  return 'warn';
+}
+
+/**
+ * 템포: 비율(배율 무관)과 절대 시간(배율 의존)을 분리해 계산한다.
+ * @param {Record<string,number>} times 영상 시간
+ * @param {number} timeScale
+ */
+export function computeTempo(times, timeScale) {
+  const backVideo = times.top - times.address;
+  const downVideo = times.impact - times.top;
+  const ratio = backVideo / downVideo; // 영상 시간끼리 나누므로 일정 배율이면 배율이 상쇄된다
+  return {
+    ratio,
+    ratioGrade: ratio >= 2.5 && ratio <= 3.5 ? 'good' : ratio >= 2 && ratio <= 4 ? 'ok' : 'warn',
+    backSec: backVideo * timeScale,
+    downSec: downVideo * timeScale,
+    totalSec: (times.impact - times.address) * timeScale,
+  };
+}
+
+/** 추정 신장(화면 높이=1 단위): 샘플 중 코~발목이 가장 긴 자세(가장 곧게 선 순간) 기준 */
+export function estimateHeightUnits(samples, aspect) {
+  let best = 0;
+  for (const s of samples) {
+    if (!s.lm) continue;
+    const nose = toUnit(s.lm[LM.NOSE], aspect);
+    const ankle = toUnit(mid(s.lm[LM.L_ANKLE], s.lm[LM.R_ANKLE]), aspect);
+    best = Math.max(best, dist(nose, ankle));
+  }
+  return best > 0 ? best / NOSE_TO_ANKLE_RATIO : 0;
+}
+
+/** 척추 기울기(도): 골반 중점→어깨 중점 선이 수직선과 이루는 각 */
+export function spineTilt(lm, aspect) {
+  const hip = toUnit(mid(lm[LM.L_HIP], lm[LM.R_HIP]), aspect);
+  const sh = toUnit(mid(lm[LM.L_SHOULDER], lm[LM.R_SHOULDER]), aspect);
+  const dx = sh.x - hip.x, dy = hip.y - sh.y; // 위쪽이 +y가 되도록
+  return (Math.atan2(Math.abs(dx), dy) * 180) / Math.PI;
+}
+
+const avgVis = (lm, ids) => ids.reduce((s, i) => s + (lm[i].visibility ?? 1), 0) / ids.length;
+
+/**
+ * @param {Array<{t:number, lm:Array|null}>} samples
+ * @param {Record<string,number>} times 확정된 구간(영상 시간)
+ * @param {{view:'face'|'dtl', aspect:number, timeScale:number}} opt
+ * @returns {{tempo:object, items:Array<object>, notes:string[]}}
+ */
+export function computeMetrics(samples, times, { view, aspect, timeScale }) {
+  const at = {};
+  for (const k of ['address', 'top', 'impact', 'finish']) at[k] = landmarksAt(samples, times[k]);
+  const tempo = computeTempo(times, timeScale);
+  const items = [];
+  const notes = [];
+
+  if (!at.address || !at.top || !at.impact) {
+    notes.push('구간 시점의 자세를 찾지 못해 템포만 계산했어요.');
+    return { tempo, items, notes };
+  }
+
+  if (view === 'face') {
+    const H = estimateHeightUnits(samples, aspect);
+    if (!(H > 0)) {
+      notes.push('몸 전체(코~발목)가 인식되지 않아 이동량(신장 대비 %)을 계산하지 못했어요. 발까지 화면에 들어오게 촬영해 주세요.');
+      return { tempo, items, notes };
+    }
+    const pct = (d) => (d / H) * 100;
+    const P = (lm, f) => toUnit(f(lm), aspect);
+    const nose = (lm) => lm[LM.NOSE];
+    const hipMid = (lm) => mid(lm[LM.L_HIP], lm[LM.R_HIP]);
+    const shMid = (lm) => mid(lm[LM.L_SHOULDER], lm[LM.R_SHOULDER]);
+
+    // 타깃 방향: 백스윙에서 손이 움직인 반대쪽. +1이면 타깃이 화면 오른쪽.
+    const handDx = P(at.top, handsOf).x - P(at.address, handsOf).x;
+    const target = handDx < 0 ? 1 : -1;
+    const toward = (dx) => dx * target; // +: 타깃 쪽, -: 타깃 반대쪽
+    const side = (v) => (v >= 0 ? '타깃 쪽' : '타깃 반대쪽');
+    const vert = (dy) => (dy > 0 ? '아래로' : '위로');
+
+    const a = P(at.address, nose);
+    const headTopDx = toward(P(at.top, nose).x - a.x);
+    const headImpDx = toward(P(at.impact, nose).x - a.x);
+    const headImpDy = P(at.impact, nose).y - a.y;
+    const headTopDy = P(at.top, nose).y - a.y;
+
+    items.push({
+      key: 'headLateral', label: '머리 좌우 이동 (어드레스→임팩트)',
+      value: pct(headImpDx), unit: '%', signed: true, detail: side(headImpDx),
+      grade: grade(pct(headImpDx), 3, 6),
+      hint: '신장 대비. 약 3% 이내면 안정적이에요. (신장 175cm 기준 3% ≈ 5cm)',
+    });
+    items.push({
+      key: 'headLateralTop', label: '머리 좌우 이동 (어드레스→탑)',
+      value: pct(headTopDx), unit: '%', signed: true, detail: side(headTopDx),
+      grade: grade(pct(headTopDx), 3, 6),
+      hint: '백스윙 중 머리가 타깃 반대쪽으로 크게 밀리면 스웨이 신호예요.',
+    });
+    const dyMax = Math.abs(headTopDy) > Math.abs(headImpDy) ? headTopDy : headImpDy;
+    items.push({
+      key: 'headVertical', label: '머리 상하 이동 (최대)',
+      value: pct(Math.abs(dyMax)), unit: '%', detail: vert(dyMax),
+      grade: grade(pct(dyMax), 2.5, 5),
+      hint: '어드레스 대비 탑·임팩트 중 큰 값. 아래로 크게 내려가거나 일어서면 타점이 흔들려요.',
+    });
+
+    const hipTop = toward(P(at.top, hipMid).x - P(at.address, hipMid).x);
+    const hipImp = toward(P(at.impact, hipMid).x - P(at.address, hipMid).x);
+    const shTop = toward(P(at.top, shMid).x - P(at.address, shMid).x);
+    items.push({
+      key: 'hipSwayBack', label: '골반 스웨이 (어드레스→탑)',
+      value: pct(hipTop), unit: '%', signed: true, detail: side(hipTop),
+      grade: hipTop >= 0 ? 'good' : grade(pct(hipTop), 3, 6),
+      hint: '백스윙에서 골반이 타깃 반대쪽으로 밀리는 정도.',
+    });
+    items.push({
+      key: 'hipShiftImpact', label: '골반 이동 (어드레스→임팩트)',
+      value: pct(hipImp), unit: '%', signed: true, detail: side(hipImp),
+      grade: hipImp >= 0 ? (pct(hipImp) <= 8 ? 'good' : 'ok') : grade(pct(hipImp), 1.5, 4),
+      hint: '임팩트 때 골반이 타깃 쪽으로 약간 이동해 있는 것이 일반적이에요.',
+    });
+    items.push({
+      key: 'upperSwayBack', label: '상체 스웨이 (어드레스→탑)',
+      value: pct(shTop), unit: '%', signed: true, detail: side(shTop),
+      grade: shTop >= 0 ? 'good' : grade(pct(shTop), 4, 8),
+      hint: '어깨 중심이 백스윙에서 타깃 반대쪽으로 밀리는 정도.',
+    });
+    notes.push(`신장은 영상 속 가장 곧게 선 자세의 코~발목 길이로 추정했어요(인체 평균 비율 ${NOSE_TO_ANKLE_RATIO}). 절대값보다 내 기록끼리 비교할 때 더 정확해요.`);
+    notes.push(`타깃 방향은 백스윙 손 움직임으로 판단했어요: 화면 ${target > 0 ? '오른쪽' : '왼쪽'}.`);
+  } else {
+    const tilt = {};
+    const vis = {};
+    const ids = [LM.L_SHOULDER, LM.R_SHOULDER, LM.L_HIP, LM.R_HIP];
+    for (const k of ['address', 'top', 'impact']) {
+      tilt[k] = spineTilt(at[k], aspect);
+      vis[k] = avgVis(at[k], ids);
+    }
+    const lowVis = (k) => vis[k] < 0.6;
+    items.push({
+      key: 'spineAddress', label: '어드레스 척추 전경각',
+      value: tilt.address, unit: '°', grade: 'info',
+      hint: '골반→어깨 선이 수직과 이루는 각. 기준값으로만 사용해요.',
+      lowConfidence: lowVis('address'),
+    });
+    const dTop = tilt.top - tilt.address;
+    const dImp = tilt.impact - tilt.address;
+    items.push({
+      key: 'spineTopChange', label: '전경각 변화 (어드레스→탑)',
+      value: dTop, unit: '°', signed: true, detail: dTop < 0 ? '일어섬' : '숙여짐',
+      grade: grade(dTop, 4, 8),
+      hint: '탑에서는 팔·어깨가 몸을 가려 인식이 흔들릴 수 있어요.',
+      lowConfidence: lowVis('top'),
+    });
+    items.push({
+      key: 'spineImpactChange', label: '전경각 변화 (어드레스→임팩트)',
+      value: dImp, unit: '°', signed: true, detail: dImp < 0 ? '일어섬(얼리 익스텐션 의심)' : '숙여짐',
+      grade: grade(dImp, 5, 10),
+      hint: '임팩트에서 상체가 일어서며 각이 줄면 얼리 익스텐션 신호예요.',
+      lowConfidence: lowVis('impact'),
+    });
+    if (Object.values(vis).some((v) => v < 0.6)) {
+      notes.push('후방 촬영은 탑·임팩트에서 팔과 어깨가 몸통을 가려 관절 인식 신뢰도가 낮아질 수 있어요. "신뢰도 낮음" 표시 항목은 참고만 하세요.');
+    }
+  }
+  return { tempo, items, notes };
+}
